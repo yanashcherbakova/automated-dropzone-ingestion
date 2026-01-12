@@ -1,22 +1,31 @@
+CORRECT_COLUMN_NAMES = ["transaction_id", "transaction_ts", "user_id", "amount", "currency", "status", "product_id", "payment_method"]
+
 VALID_CURRENCIES = {"USD", "EUR", "GBP", "JPY", "CAD"}
 
 CURRENCY_MAPPING = {
     "US$": "USD",
     "DOLLAR": "USD",
     "DOLLARS": "USD",
+    "usd": "USD",
+    " USD ": "USD",
 
     "EURO": "EUR",
     "EUROS": "EUR",
     "€": "EUR",
+    "eur": "EUR",
 
     "£": "GBP",
     "GBR": "GBP",
+    "gbp": "GBP",
 
     "YEN": "JPY",
     "¥": "JPY",
+    "jpy": "JPY",
 
     "CA$": "CAD",
     "CDN": "CAD",
+    "cad": "CAD",
+    "cdn": "CAD",
 }
 
 CURRENCY_VARIANTS = [

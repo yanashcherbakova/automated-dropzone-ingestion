@@ -1,1 +1,3 @@
-.evn
+.env
+.DS_Store
+tmp.py

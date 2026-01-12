@@ -36,16 +36,25 @@ def main():
     tmp_path = os.path.join(OUTPUT_DIR, "." + filename + ".tmp")
     final_path = os.path.join(OUTPUT_DIR, filename)
 
+    col1= random.choice(["transaction_id", "id", "tranc_id"])
+    col2= random.choice(["transaction_ts", "ttime", "tdate"])
+    col3= random.choice(["user_id", "id", "user"])
+    col4= random.choice(["amount"])
+    col5= random.choice(["currency", "cur"])
+    col6= random.choice(["status", "state"])
+    col7= random.choice(["product_id", "id", "product"])
+    col8= random.choice(["payment_method", "pay_m", "paym"])
+
     with open(tmp_path, "w", newline="") as f:
         writer = csv.DictWriter(f, fieldnames=[
-            "transaction_id",
-            "transaction_ts",
-            "user_id",
-            "amount",
-            "currency",
-            "status",
-            "product_id",
-            "payment_method"
+            col1,
+            col2,
+            col3,
+            col4,
+            col5,
+            col6,
+            col7,
+            col8,
         ])
         writer.writeheader()
 
@@ -78,14 +87,14 @@ def main():
             payment_method = random.choice(PAYMENT_METHOD_VARIANTS)
 
             writer.writerow({
-                "transaction_id": transaction_id,
-                "transaction_ts": transaction_ts,
-                "user_id": user_id,
-                "amount": amount,
-                "currency": currency,
-                "status": status,
-                "product_id": product_id,
-                "payment_method": payment_method
+                col1: transaction_id,
+                col2: transaction_ts,
+                col3: user_id,
+                col4: amount,
+                col5: currency,
+                col6: status,
+                col7: product_id,
+                col8: payment_method
             })
 
     os.replace(tmp_path, final_path)
