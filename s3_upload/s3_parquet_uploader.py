@@ -4,11 +4,9 @@ from watchdog.observers import Observer
 from watchdog.events import FileSystemEventHandler
 import os
 from botocore.config import Config
-from botocore.exceptions import ClientError
+from botocore.exceptions import ClientError, BotoCoreError
 import time
-
 import boto3
-
 
 import datetime
 
@@ -37,20 +35,32 @@ def utcnow():
 def s3_key(now, file_name):
     return f"{S3_PREFIX}/year={now:%Y}/month={now:%m}/day={now:%d}/{file_name}"
 
-def upload_to_s3(file_path, file_name):
+def upload_to_s3(file_path):
     logger.info("Processing: %s", file_path)
 
     s3 = build_s3()
     key = s3_key(utcnow())
 
     try:
-        s3.upload_file(file_path, bucket= S3_BUCKET, key = key)
+        s3.upload_file(file_path, Bucket= S3_BUCKET, Key = key)
         logger.info("✅ Uploaded to S3 %s", key)
-    except ClientError:
-        logger.warning("❗Upload to S3 failed %s", key)
-    
-
-
+    except (ClientError, BotoCoreError) as e:
+        logger.warning("❗Upload to S3 failed %s", key, exc_info=True)
+        failed_path_upload = os.path.join(FAILED_DIR_UPLOAD, os.path.basename(file_path))
+        try:
+            os.replace(file_path, failed_path_upload)
+            logger.info("File moved to failed/upload: %s", failed_path_upload)
+        except Exception as e:
+            logger.warning("🟡 STUCK IN PROCESSED FOLDER! Failed to move to failed/upload: %s", file_path)
+            return
+    else:
+        try:
+            os.remove(file_path)
+            logger.info("✅ Uploaded and removed: %s", file_path)
+        except FileNotFoundError:
+            logger.warning("🟡 Uploaded but file already missing: %s", file_path)
+        except Exception:
+            logger.warning("🟡 Uploaded but failed to remove: %s", file_path, exc_info=True)
 
 
 class ProcessedFileHandler(FileSystemEventHandler):
@@ -70,6 +80,8 @@ class ProcessedFileHandler(FileSystemEventHandler):
             return
         
         logger.info("✅ Parquet File detected: %s", file_path)
+
+        upload_to_s3(file_path)
         
 if __name__ == "__maint__":
     os.makedirs(PROCESSED_DIR, exist_ok=True)
