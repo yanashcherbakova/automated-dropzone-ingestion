@@ -7,11 +7,16 @@ from dotenv import load_dotenv
 import pandas as pd
 from datetime import datetime
 from synth_data.values import CORRECT_COLUMN_NAMES, CURRENCY_MAPPING, VALID_CURRENCIES, CANONICAL_STATUS, STATUS_MAPPING, CANONICAL_PAYMENT_METHODS, PAYMENT_METHOD_MAPPING
+from logging_config import setup_logger
+import logging
 
 load_dotenv()
 
-INCOMING_DIR = os.getenv("INCOMING_DIR")
+logger = setup_logger("dropzone.processing")
 
+INCOMING_DIR = os.getenv("INCOMING_DIR")
+FAILED_DIR_READ = os.getenv("FAILED_DIR_READ")
+FAILED_DIR_TRANSFORM = os.getenv("FAILED_DIR_TRANSFORM")
 
  #"transaction_id",
  #"transaction_ts",
@@ -24,10 +29,25 @@ INCOMING_DIR = os.getenv("INCOMING_DIR")
 
 def process_file(file_path):
     print("PROCESS:", file_path)
+    logger.info("Processing: %s", file_path)
 
-    try:
-        df = pd.read_csv(file_path)
-    except Exception as e:
+    for attempt in range(3):
+        try:
+            df = pd.read_csv(file_path)
+            logger.info("✅ CSV's been successfully read: %s", file_path)
+            break
+        except Exception as e:
+            logger.warning("🌀 Read csv failed. Path: %s, Attempt NO %d", file_path, attempt)
+            time.sleep(30)
+        
+    else:
+        logger.error("❗Read csv permaently failed: %s", file_path)
+        failed_path_r = os.path.join(FAILED_DIR_READ, os.path.basename(file_path))
+        try:
+            os.replace(file_path, failed_path_r)
+            logger.info("File moved to failed/read: %s", failed_path_r)
+        except Exception as e:
+            logger.warning("🟡 STUCK IN INCOMING FOLDER! Failed to move to failed/read: %s", file_path)
         return
     
     if len(CORRECT_COLUMN_NAMES )== df.shape[1]:
@@ -72,11 +92,26 @@ def process_file(file_path):
     os.makedirs("processed", exist_ok=True)
 
     fname = f"transactions_{datetime.now():%Y%m%d_%H%M%S}_{uuid4().hex}.parquet"
-    try:
-        df.to_parquet(f"processed/{fname}", index=False)
-    except Exception as e:
+
+    for attempt in range(3):
+        try:
+            df.to_parquet(f"processed/{fname}", index=False)
+            logger.info("✅ Parquet is ready in processed folder: %s", fname)
+            break
+        except Exception as e:
+            logger.warning("🌀 Failed to write parquet: %s, Attempt NO %d", fname, attempt)
+            time.sleep(30)
+
+    else:
+        logger.error("❗Write parquet permaently failed: %s", fname)
+        failed_path_t = os.path.join(FAILED_DIR_TRANSFORM, os.path.basename(file_path))
+        try:
+            os.replace(file_path, failed_path_t)
+            logger.info("File moved to failed/transorm: %s", failed_path_t)
+        except Exception as e:
+            logger.warning("🟡 STUCK IN INCOMING FOLDER! Failed to move to failed/transform: %s", file_path)
         return
-    
+
 
 class FileHandler(FileSystemEventHandler):
     def on_created(self, event):
@@ -87,25 +122,30 @@ class FileHandler(FileSystemEventHandler):
         file_name = os.path.basename(file_path)
 
         if file_name.startswith(".") or file_name.endswith(".tmp"):
+            logger.info("🌀 Ignoring tmp file: %s", file_path)
             return
         
         if not file_name.endswith(".csv"):
+            logger.info("🌀 Ignoring file - not csv: %s", file_path)
             return
         
 
 if __name__ == "__main__":
+
     os.makedirs(INCOMING_DIR, exist_ok=True)
 
     observer = Observer()
     observer.schedule(FileHandler(), INCOMING_DIR, recursive=False)
     observer.start()
     print("Watching:", os.path.abspath(INCOMING_DIR))
+    logger.info("Watching: %s", os.path.abspath(INCOMING_DIR))
 
     try:
         while True:
             time.sleep(1)
     except KeyboardInterrupt:
         observer.stop()
+        logger.info("Keyboard interruption. Watcher has been stopped")
     observer.join()
     
 
