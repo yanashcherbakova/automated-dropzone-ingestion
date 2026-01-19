@@ -11,6 +11,9 @@ def setup_logger(name):
     logger = logging.getLogger(name)
     logger.setLevel(logging.INFO)
 
+    if logger.handlers:
+        return logger
+
     handler = RotatingFileHandler(
         os.path.join(LOG_DIR, LOG_FILE),
         maxBytes= 25000000,

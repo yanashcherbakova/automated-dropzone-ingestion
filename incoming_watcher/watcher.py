@@ -8,15 +8,22 @@ import pandas as pd
 from datetime import datetime
 from synth_data.values import CORRECT_COLUMN_NAMES, CURRENCY_MAPPING, VALID_CURRENCIES, CANONICAL_STATUS, STATUS_MAPPING, CANONICAL_PAYMENT_METHODS, PAYMENT_METHOD_MAPPING
 from logging_config import setup_logger
-import logging
+
+from log_shipper import ship_rotated_logs_loop
+import threading
+
 
 load_dotenv()
 
+logger_ingest = setup_logger("dropzone.reading")
 logger = setup_logger("dropzone.processing")
 
 INCOMING_DIR = os.getenv("INCOMING_DIR")
+PROCESSED_DIR = os.getenv("PROCESSED_DIR")
 FAILED_DIR_READ = os.getenv("FAILED_DIR_READ")
 FAILED_DIR_TRANSFORM = os.getenv("FAILED_DIR_TRANSFORM")
+
+S3_BUCKET = os.getenv("S3_BUCKET")
 
  #"transaction_id",
  #"transaction_ts",
@@ -29,25 +36,25 @@ FAILED_DIR_TRANSFORM = os.getenv("FAILED_DIR_TRANSFORM")
 
 def process_file(file_path):
     print("PROCESS:", file_path)
-    logger.info("Processing: %s", file_path)
+    logger_ingest.info("Processing: %s", file_path)
 
-    for attempt in range(3):
+    for attempt in range(1,4):
         try:
             df = pd.read_csv(file_path)
-            logger.info("✅ CSV's been successfully read: %s", file_path)
+            logger_ingest.info("✅ CSV's been successfully read: %s", file_path)
             break
         except Exception as e:
-            logger.warning("🌀 Read csv failed. Path: %s, Attempt NO %d", file_path, attempt)
+            logger_ingest.warning("🌀 Read csv failed. Path: %s, Attempt NO %d", file_path, attempt)
             time.sleep(30)
         
     else:
-        logger.error("❗Read csv permaently failed: %s", file_path)
+        logger_ingest.error("❗Read csv permaently failed: %s", file_path)
         failed_path_r = os.path.join(FAILED_DIR_READ, os.path.basename(file_path))
         try:
             os.replace(file_path, failed_path_r)
-            logger.info("File moved to failed/read: %s", failed_path_r)
+            logger_ingest.info("File moved to failed/read: %s", failed_path_r)
         except Exception as e:
-            logger.warning("🟡 STUCK IN INCOMING FOLDER! Failed to move to failed/read: %s", file_path)
+            logger_ingest.warning("🟡 STUCK IN INCOMING FOLDER! Failed to move to failed/read: %s", file_path)
         return
     
     if len(CORRECT_COLUMN_NAMES )== df.shape[1]:
@@ -89,17 +96,25 @@ def process_file(file_path):
     df = df[df["payment_method"].isin(CANONICAL_PAYMENT_METHODS) | df["payment_method"].isin(PAYMENT_METHOD_MAPPING)]
     df["payment_method"] = df["payment_method"].replace(PAYMENT_METHOD_MAPPING)
 
-    os.makedirs("processed", exist_ok=True)
+
+    os.makedirs(PROCESSED_DIR, exist_ok=True)
 
     fname = f"transactions_{datetime.now():%Y%m%d_%H%M%S}_{uuid4().hex}.parquet"
+    tmp_path = os.path.join(PROCESSED_DIR, "." + fname + ".tmp")
+    p_path = os.path.join(PROCESSED_DIR, fname)
 
-    for attempt in range(3):
+    for attempt in range(1,4):
         try:
-            df.to_parquet(f"processed/{fname}", index=False)
+            df.to_parquet(tmp_path, index=False)
+            os.replace(tmp_path, p_path)
             logger.info("✅ Parquet is ready in processed folder: %s", fname)
             break
         except Exception as e:
             logger.warning("🌀 Failed to write parquet: %s, Attempt NO %d", fname, attempt)
+            try:
+                os.remove(tmp_path)
+            except FileNotFoundError:
+                pass
             time.sleep(30)
 
     else:
@@ -107,13 +122,13 @@ def process_file(file_path):
         failed_path_t = os.path.join(FAILED_DIR_TRANSFORM, os.path.basename(file_path))
         try:
             os.replace(file_path, failed_path_t)
-            logger.info("File moved to failed/transorm: %s", failed_path_t)
+            logger.info("File moved to failed/transform: %s", failed_path_t)
         except Exception as e:
             logger.warning("🟡 STUCK IN INCOMING FOLDER! Failed to move to failed/transform: %s", file_path)
         return
 
 
-class FileHandler(FileSystemEventHandler):
+class IngestingFileHandler(FileSystemEventHandler):
     def on_created(self, event):
         if event.is_directory:
             return
@@ -122,12 +137,15 @@ class FileHandler(FileSystemEventHandler):
         file_name = os.path.basename(file_path)
 
         if file_name.startswith(".") or file_name.endswith(".tmp"):
-            logger.info("🌀 Ignoring tmp file: %s", file_path)
+            logger_ingest.info("🌀 Ignoring tmp file: %s", file_path)
             return
         
         if not file_name.endswith(".csv"):
-            logger.info("🌀 Ignoring file - not csv: %s", file_path)
+            logger_ingest.info("🌀 Ignoring file - not csv: %s", file_path)
             return
+        
+        logger_ingest.info("✅ CSV File detected: %s", file_path)
+        process_file(file_path)
         
 
 if __name__ == "__main__":
@@ -135,17 +153,17 @@ if __name__ == "__main__":
     os.makedirs(INCOMING_DIR, exist_ok=True)
 
     observer = Observer()
-    observer.schedule(FileHandler(), INCOMING_DIR, recursive=False)
+    observer.schedule(IngestingFileHandler(), INCOMING_DIR, recursive=False)
     observer.start()
     print("Watching:", os.path.abspath(INCOMING_DIR))
-    logger.info("Watching: %s", os.path.abspath(INCOMING_DIR))
+    logger_ingest.info("Watching: %s", os.path.abspath(INCOMING_DIR))
 
     try:
         while True:
             time.sleep(1)
     except KeyboardInterrupt:
         observer.stop()
-        logger.info("Keyboard interruption. Watcher has been stopped")
+        logger_ingest.info("🌀Keyboard interruption. Watcher /incoming has been stopped")
     observer.join()
     
 

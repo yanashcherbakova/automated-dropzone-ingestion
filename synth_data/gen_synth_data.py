@@ -98,9 +98,9 @@ def main():
             })
 
     os.replace(tmp_path, final_path)
-    print("Geerated file: ", filename)
+    print("Generated file: ", filename)
 
 if __name__ == "__main__":
     while True:
         main()
-        time.sleep(300)
+        time.sleep(60)
