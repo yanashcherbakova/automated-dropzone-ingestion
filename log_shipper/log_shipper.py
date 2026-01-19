@@ -2,12 +2,19 @@ import os
 import time
 import glob
 from dotenv import load_dotenv
+from aws.s3_utils import upload_to_s3
 
 load_dotenv()
 
-LOGS_DIR = os.getenv("LOGS_DIR")
+def ship_ratated_logs(s3, bucket, logger_uploader):
+    LOGS_DIR = os.getenv("LOGS_DIR")
+    FAILED_LOGS = os.getenv("FAILED_LOGS")
+    s3_prefix = "logs"
 
-def ship_ratated_logs(LOGS_DIR):
+    os.makedirs(FAILED_LOGS, exist_ok=True)
+    os.makedirs(LOGS_DIR, exist_ok=True)
+
+    
     pattern = os.path.join(LOGS_DIR, "dropzone.log.*")
 
     while True:
@@ -23,12 +30,12 @@ def ship_ratated_logs(LOGS_DIR):
             except FileNotFoundError:
                 continue
 
-            fname = os.path.basename(path)
-            key = f"logs/{fname}"
-
-            try:
-                s3.upload_file(path, bucket, key)
-                os.remove(path)
-            except Exception:
-                pass
-    
+            upload_to_s3(
+                s3=s3,
+                file_path=path,
+                logger_uploader=logger_uploader,
+                S3_BUCKET=bucket,
+                S3_PREFIX=s3_prefix,
+                failed_folder=FAILED_LOGS,
+                is_logs=True
+            )
