@@ -1,7 +1,17 @@
 import os
 import threading
-from queue import Full, Queue
+from queue import Full, Queue, Empty
 from aws.s3_utils import s3_cfg, build_s3, upload_to_s3
+import time
+from dotenv import load_dotenv
+import glob
+
+load_dotenv()
+
+PROCESSED_DIR = os.getenv("PROCESSED_DIR")
+upload_queue = Queue(maxsize=2000)
+claimed_files = set()
+claimed_files_lock = threading.Lock()
 
 def is_candidate(file_path):
     name = os.path.basename(file_path)
@@ -10,7 +20,7 @@ def is_candidate(file_path):
     if not name.endswith(".parquet"):
         False
 
-def claim_file(file_path, claimed_files_lock, claimed_files):
+def claim_file(file_path):
     if not is_candidate(file_path):
         return False
     
@@ -23,7 +33,14 @@ def claim_file(file_path, claimed_files_lock, claimed_files):
     finally:
         claimed_files_lock.release()
 
-def queue_files(file_path, source, claimed_files, claimed_files_lock, upload_queue, logger_ingest):
+def release_claim(file_path):
+    claimed_files_lock.acquire()
+    try:
+        claimed_files.discard(file_path)
+    finally:
+        claimed_files_lock.release()
+
+def queue_file(file_path, logger_ingest, source):
     if not is_candidate(file_path):
         return False
     
@@ -33,27 +50,25 @@ def queue_files(file_path, source, claimed_files, claimed_files_lock, upload_que
         return True
     except Full:
         logger_ingest.warning("🟡 Queue full, could not enqueue: %s", file_path, exc_info=True)
-
-        claimed_files_lock.acquire()
-        try:
-            claimed_files.discard(file_path)
-        finally:
-            claimed_files_lock.release()
-        return False
-    except Exception:
-        logger_ingest.warning("🟡 Adding to queue failed: %s", file_path, exc_info=True)
-        claimed_files_lock.acquire()
-        try:
-            claimed_files.discard(file_path)
-        finally:
-            claimed_files_lock.release()
+        release_claim(file_path)
         return False
     
-def uploader_worker(stop_event, upload_queue, claimed_files_lock, claimed_files):
+    except Exception:
+        logger_ingest.warning("🟡 Adding to queue failed: %s", file_path, exc_info=True)
+        release_claim(file_path)
+        return False
+    
+def uploader_worker(stop_event, logger_uploader):
+    logger_uploader.info("--Uploader worker started")
+
     while not stop_event.is_set():
-        file_path = upload_queue.get(timeout=1)
+        try:
+            file_path = upload_queue.get(timeout=1)
+        except Empty:
+            continue
 
         try:
+            logger_uploader.info("--Start upload: %s", file_path)
             upload_to_s3(
                 s3, 
                 file_path, 
@@ -62,17 +77,22 @@ def uploader_worker(stop_event, upload_queue, claimed_files_lock, claimed_files)
                 S3_PREFIX, 
                 FAILED_DIR_UPLOADS, 
                 is_logs=False)
+            logger_uploader.info("✅ Finished upload handling: %s", file_path)
         finally:
             upload_queue.task_done()
-            claimed_files_lock.acquire()
-            try:
-                claimed_files.discard(file_path)
-            finally:
-                claimed_files_lock.release()
+            release_claim(file_path)
             return False
             
-    
 
+def processed_rescan_loop(stop_event, logger_uploader):
+    while not stop_event.is_set():
+        pattern = os.path.join(PROCESSED_DIR, "*.parquet")
+        found = 0
+        queued = 0
 
+        for file_path in sorted(glob.glob(pattern)):
+            found += 1
+            if queue_file(file_path, logger_ingest, source="rescan"):
+                queued += 1
 
-    
+        stop_event.wait(60)

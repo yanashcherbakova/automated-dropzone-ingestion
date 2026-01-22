@@ -3,14 +3,13 @@ from dotenv import load_dotenv
 from watchdog.observers import Observer
 from watchdog.events import FileSystemEventHandler
 import os
-from botocore.config import Config
-from botocore.exceptions import ClientError, BotoCoreError
 import time
 import boto3
-
-import datetime
-
-from aws.s3_utils import s3_cfg, build_s3, utcnow, s3_key, upload_to_s3
+from s3_upload.queue_utils import queue_file
+from queue import Queue
+import threading
+from aws.s3_utils import s3_cfg, build_s3
+from s3_upload.queue_utils import queue_file, uploader_worker, processed_rescan_loop
 
 load_dotenv()
 logger_uploader = setup_logger("dropzone.uploader")
@@ -28,6 +27,9 @@ if not S3_BUCKET:
 
 s3 = build_s3(AWS_REGION, s3_cfg)
 
+upload_queue = Queue(maxsize=2000)
+claimed_files = set()
+claimed_files_lock = threading.Lock()
 
 class ProcessedFileHandler(FileSystemEventHandler):
     def on_created(self, event):
@@ -35,23 +37,16 @@ class ProcessedFileHandler(FileSystemEventHandler):
             return
         
         file_path = event.src_path
-        file_name = os.path.basename(file_path)
-
-        if file_name.startswith(".") or file_name.endswith(".tmp"):
-            logger_ingest.info("🌀 Ignoring tmp file: %s", file_path)
-            return
-        
-        if not file_name.endswith(".parquet"):
-            logger_ingest.info("🌀 Ignoring file - not parquet: %s", file_path)
-            return
-        
-        logger_ingest.info("✅ Parquet File detected: %s", file_path)
-
-        upload_to_s3(s3, file_path, logger_uploader, S3_BUCKET, S3_PREFIX, FAILED_DIR_UPLOAD, is_logs=False)
+        queue_file(file_path, logger_ingest, source="watchdog",)
         
 if __name__ == "__main__":
     os.makedirs(PROCESSED_DIR, exist_ok=True)
     os.makedirs(FAILED_DIR_UPLOAD, exist_ok=True)
+
+    stop_event = threading.Event()
+
+    thr_upload = threading.Thread(target=uploader_worker, args=(stop_event, logger_uploader))
+    thr_upload.start()
 
     observer = Observer()
     observer.schedule(ProcessedFileHandler(), PROCESSED_DIR, recursive=False)
@@ -59,12 +54,21 @@ if __name__ == "__main__":
     print("Watching:", os.path.abspath(PROCESSED_DIR))
     logger_ingest.info("Watching: %s", os.path.abspath(PROCESSED_DIR))
 
+    thr_rescan = threading.Thread(target=processed_rescan_loop, args=(stop_event, logger_uploader))
+    thr_rescan.start()
+    logger_ingest.info("-- Rescan of PROCESSED FOLDER (every 60 sec) ...")
+
+
     try:
         while True:
             time.sleep(1)
     except KeyboardInterrupt:
-        observer.stop()
         logger_ingest.info("🌀 Keyboard interruption. Watcher /processed has been stopped")
+        observer.stop()
+        stop_event.set()
+
     observer.join()
+    thr_rescan.join()
+    thr_upload.join()
         
                                      
