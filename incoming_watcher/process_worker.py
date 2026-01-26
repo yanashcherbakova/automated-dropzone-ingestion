@@ -42,7 +42,7 @@ claimed_csv = set()
 claimed_csv_lock = threading.Lock()
 
 def claim_csv(file_path):
-    if not is_candidate(file_path, target=".csv"):
+    if not is_candidate(file_path, target = ".csv"):
         return False
     
     claimed_csv_lock.acquire()

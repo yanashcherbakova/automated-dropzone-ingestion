@@ -4,12 +4,9 @@ from watchdog.observers import Observer
 from watchdog.events import FileSystemEventHandler
 import os
 import time
-import boto3
-from s3_upload.queue_utils import queue_file
-from queue import Queue
 import threading
 from aws.s3_utils import s3_cfg, build_s3
-from s3_upload.queue_utils import queue_file, uploader_worker, processed_rescan_loop
+import uploader_worker as upw
 
 load_dotenv()
 logger_uploader = setup_logger("dropzone.uploader")
@@ -27,17 +24,24 @@ if not S3_BUCKET:
 
 s3 = build_s3(AWS_REGION, s3_cfg)
 
-upload_queue = Queue(maxsize=2000)
-claimed_files = set()
-claimed_files_lock = threading.Lock()
+upw.init_context(
+    logger_uploader,
+    logger_ingest,
+    AWS_REGION,
+    S3_BUCKET,
+    S3_PREFIX,
+    PROCESSED_DIR,
+    FAILED_DIR_UPLOAD,
+    s3
+)
 
 class ProcessedFileHandler(FileSystemEventHandler):
-    def on_created(self, event):
+    def on_moved(self, event):
         if event.is_directory:
             return
         
-        file_path = event.src_path
-        queue_file(file_path, logger_ingest, source="watchdog",)
+        file_path = event.dest_path
+        upw.queue_file(file_path, source="watchdog // processing_folder")
         
 if __name__ == "__main__":
     os.makedirs(PROCESSED_DIR, exist_ok=True)
@@ -45,7 +49,7 @@ if __name__ == "__main__":
 
     stop_event = threading.Event()
 
-    thr_upload = threading.Thread(target=uploader_worker, args=(stop_event, logger_uploader))
+    thr_upload = threading.Thread(target=upw.uploader_worker, args=(stop_event,))
     thr_upload.start()
 
     observer = Observer()
@@ -54,7 +58,7 @@ if __name__ == "__main__":
     print("Watching:", os.path.abspath(PROCESSED_DIR))
     logger_ingest.info("Watching: %s", os.path.abspath(PROCESSED_DIR))
 
-    thr_rescan = threading.Thread(target=processed_rescan_loop, args=(stop_event, logger_uploader))
+    thr_rescan = threading.Thread(target=upw.processed_rescan_loop, args=(stop_event,))
     thr_rescan.start()
     logger_ingest.info("-- Rescan of PROCESSED FOLDER (every 60 sec) ...")
 
