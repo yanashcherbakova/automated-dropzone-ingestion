@@ -1,4 +1,4 @@
-from values import CURRENCY_VARIANTS, STATUS_VARIANTS, PAYMENT_METHOD_VARIANTS
+from synth_data.values import CURRENCY_VARIANTS, STATUS_VARIANTS, PAYMENT_METHOD_VARIANTS
 import csv
 import os
 import random

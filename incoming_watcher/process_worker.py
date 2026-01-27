@@ -111,6 +111,8 @@ def write_tmp_parquet(df,file_path):
 
     for attempt in range(1,4):
         try:
+            logger_process.info("PROCESSED_DIR=%r tmp_path=%r", PROCESSED_DIR, tmp_path)
+            logger_process.info("dtypes: %s", df.dtypes.to_dict())
             df.to_parquet(tmp_path, index=False)
             os.replace(tmp_path, p_path)
             logger_process.info("✅ Parquet is ready in processed folder: %s", fname)
@@ -126,18 +128,18 @@ def write_tmp_parquet(df,file_path):
                 logger_process.warning("🟡 Parquet saved but CSV  failed to remove: %s", file_path, exc_info=True)
                 return True
         except Exception as e:
-            logger_process.warning("🌀 Failed to write parquet: %s, Attempt NO %d", fname, attempt)
+            logger_process.warning("🌀 Failed to write parquet: %s, Attempt NO %d", fname, attempt, exc_info=True)
             try:
                 os.remove(tmp_path)
             except FileNotFoundError:
                 pass
             time.sleep(30)
     else:
-        logger_process.error("❗Write parquet permaently failed: %s", fname)
+        logger_process.error("🔴 Write parquet permaently failed: %s", fname)
         failed_path_t = os.path.join(FAILED_DIR_TRANSFORM, os.path.basename(file_path))
         try:
             os.replace(file_path, failed_path_t)
-            logger_process.info("File moved to failed/transform: %s", failed_path_t)
+            logger_process.info("🔴 File moved to failed/transform: %s", failed_path_t)
             return False
         except Exception as e:
             logger_process.warning("🟡 STUCK IN INCOMING FOLDER! Failed to move to failed/transform: %s", file_path)
@@ -156,9 +158,10 @@ def process_file(file_path):
     if df is None:
         return False
 
-    print("PROCESS:", file_path)
+    print("🌀 PROCESS:", file_path)
     if len(CORRECT_COLUMN_NAMES )== df.shape[1]:
         df.columns = CORRECT_COLUMN_NAMES
+        logger_process.info("🟣 Processing: columns are fine")
     else:
         logger_process.warning("🟡 Unexpected column count (%d) for %s", df.shape[1], file_path)
     
@@ -166,12 +169,15 @@ def process_file(file_path):
     df = df[ts.notna()]
     df["transaction_ts"] = ts
 
-    mask_today = df["transaction_ts"].dt.date == pd.Timestamp.today().date()
+    today = pd.Timestamp.today().date()
+    mask_today = df["transaction_ts"].dt.date == today
     df = df[mask_today]
+    logger_process.info("🟣 Processing: filtered dates for -- %s", today)
 
     df = df[df["user_id"].notna() & (df["user_id"] != "")]
     df = df[df["currency"].isin(VALID_CURRENCIES) | df["currency"].isin(CURRENCY_MAPPING)]
     df["currency"] = df["currency"].replace(CURRENCY_MAPPING)
+    logger_process.info("🟣 Processing: currency mapping")
 
     amount = df["amount"]
     mask_str = amount.apply(lambda x: isinstance(x, str))
@@ -186,25 +192,28 @@ def process_file(file_path):
     df["amount"] = pd.to_numeric(amount_cleaned, errors="coerce")
     df = df[df["amount"].notna()]
     df = df[df["amount"] >= 0]
+    logger_process.info("🟣 Processing: valid amount")
 
     df = df[df["transaction_id"].notna()]
     df = df.drop_duplicates(subset=["transaction_id"])
 
     df = df[df["status"].isin(CANONICAL_STATUS) | df["status"].isin(STATUS_MAPPING)]
     df["status"] = df["status"].replace(STATUS_MAPPING)
+    logger_process.info("🟣 Processing: transaction status mapping")
 
     df = df[df["payment_method"].isin(CANONICAL_PAYMENT_METHODS) | df["payment_method"].isin(PAYMENT_METHOD_MAPPING)]
     df["payment_method"] = df["payment_method"].replace(PAYMENT_METHOD_MAPPING)
+    logger_process.info("🟣 Processing: payment method mapping")
 
     if df.empty:
         logger_process.warning("🟡 All rows filtered out, skipping parquet write: %s", file_path)
         return False
 
+    print("🌀 WRITING:", file_path)
     write_tmp_parquet(df, file_path)
 
 
 def process_worker(stop_processing):
-
     logger_process.info("--Process worker started")
 
     while not stop_processing.is_set():

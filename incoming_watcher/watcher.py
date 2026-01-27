@@ -6,9 +6,9 @@ from dotenv import load_dotenv
 from logging_config import setup_logger
 from aws.s3_utils import build_s3, s3_cfg
 
-from log_shipper import ship_rotated_logs_loop
+from log_shipper.log_shipper import ship_ratated_logs
 import threading
-import process_worker as pw
+from incoming_watcher import process_worker as pw
 
 load_dotenv()
 
@@ -51,7 +51,7 @@ if __name__ == "__main__":
 
     stop_processing = threading.Event()
 
-    t_logrotation = threading.Thread(target=ship_rotated_logs_loop, args=(s3, S3_BUCKET, logger_uploader), daemon=True)
+    t_logrotation = threading.Thread(target=ship_ratated_logs, args=(s3, S3_BUCKET, logger_uploader), daemon=True)
     t_logrotation.start()
 
     t_processing = threading.Thread(target=pw.process_worker, args=(stop_processing,))

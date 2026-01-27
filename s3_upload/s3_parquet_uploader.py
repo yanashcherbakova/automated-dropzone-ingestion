@@ -6,7 +6,7 @@ import os
 import time
 import threading
 from aws.s3_utils import s3_cfg, build_s3
-import uploader_worker as upw
+from s3_upload import uploader_worker as upw
 
 load_dotenv()
 logger_uploader = setup_logger("dropzone.uploader")
@@ -56,11 +56,11 @@ if __name__ == "__main__":
     observer.schedule(ProcessedFileHandler(), PROCESSED_DIR, recursive=False)
     observer.start()
     print("Watching:", os.path.abspath(PROCESSED_DIR))
-    logger_ingest.info("Watching: %s", os.path.abspath(PROCESSED_DIR))
+    logger_ingest.info("🌀 Watching: %s", os.path.abspath(PROCESSED_DIR))
 
     thr_rescan = threading.Thread(target=upw.processed_rescan_loop, args=(stop_event,))
     thr_rescan.start()
-    logger_ingest.info("-- Rescan of PROCESSED FOLDER (every 60 sec) ...")
+    logger_ingest.info(" 🌀 -- Rescan of FAILED/UPLOAD FOLDER (every 60 sec) ... 🌀")
 
 
     try:

@@ -33,11 +33,11 @@ def upload_to_s3(s3, file_path, logger_uploader, S3_BUCKET, S3_PREFIX, failed_fo
         s3.upload_file(file_path, S3_BUCKET, key)
         logger_uploader.info("✅ Uploaded to S3 %s", key)
     except (ClientError, BotoCoreError) as e:
-        logger_uploader.warning("❗Upload to S3 failed %s", key, exc_info=True)
+        logger_uploader.warning("🔴 Upload to S3 failed %s", key, exc_info=True)
         failed_path_upload = os.path.join(failed_folder, file_name)
         try:
             os.replace(file_path, failed_path_upload)
-            logger_uploader.info("File moved to failed/upload: %s", failed_path_upload)
+            logger_uploader.info("🔴 Parquet was moved to FAILED/UPLOAD %s", key, exc_info=True)
         except Exception as e:
             if is_logs:
                 logger_uploader.warning("🟡 STUCK IN LOGS FOLDER! Failed to move to failed/log_upload: %s", file_path)

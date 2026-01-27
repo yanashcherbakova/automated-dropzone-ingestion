@@ -66,7 +66,7 @@ def uploader_worker(stop_event):
             continue
 
         try:
-            logger_uploader.info("--Start upload: %s", file_path)
+            logger_uploader.info("🌀 --Start upload: %s", file_path)
             upload_to_s3(
                 s3, 
                 file_path, 
@@ -82,8 +82,9 @@ def uploader_worker(stop_event):
             
 
 def processed_rescan_loop(stop_event):
+    logger_uploader.info("🌀-- Rescan of FAILED/UPLOAD FOLDER --🌀")
     while not stop_event.is_set():
-        pattern = os.path.join(PROCESSED_DIR, "*.parquet")
+        pattern = os.path.join(FAILED_DIR_UPLOAD, "*.parquet")
         found = 0
         queued = 0
 
@@ -91,7 +92,9 @@ def processed_rescan_loop(stop_event):
             if stop_event.is_set():
                 break
             found += 1
+            logger_uploader.info("🟡 Located parquet-file in FAILED/UPLOAD FOLDER: %s", file_path)
             if queue_file(file_path, source="rescan"):
+                logger_uploader.info("🟣 FAILED file was queued for upload: %s", file_path)
                 queued += 1
 
         stop_event.wait(60)

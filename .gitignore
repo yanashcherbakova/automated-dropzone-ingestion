@@ -1,3 +1,6 @@
 .env
 .DS_Store
 tmp.py
+.venv/
+file_storage/
+logs/
