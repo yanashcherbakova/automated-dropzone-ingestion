@@ -1,0 +1,32 @@
+services:
+  generator:
+    build: .
+    container_name: testing_syth_data_generator
+    env_file: [.env.docker]
+    volumes:
+      - ./file_storage:/app/file_storage
+      - ./logs:/app/logs
+    command: ["python3", "-m", "synth_data.gen_synth_data"]
+    restart: unless-stopped
+
+  processor:
+    build: .
+    container_name: processor
+    env_file: [.env.docker]
+    volumes:
+      - ./file_storage:/app/file_storage
+      - ./logs:/app/logs
+    command: ["python3", "-m", "incoming_watcher.watcher"]
+    restart: unless-stopped
+
+  uploader:
+    build: .
+    container_name: uploader
+    env_file: [.env.docker]
+    volumes:
+      - ./file_storage:/app/file_storage
+      - ./logs:/app/logs
+      - ~/.aws:/root/.aws:ro
+    command: ["python3", "-m", "s3_upload.s3_parquet_uploader"]
+    restart: unless-stopped
+    depends_on: [processor]

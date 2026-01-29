@@ -1,0 +1,12 @@
+
+.git
+__pycache__
+*.pyc
+
+.env
+.env.docker
+
+file_storage
+logs
+pics
+tmp.py

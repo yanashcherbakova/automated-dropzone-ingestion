@@ -1,0 +1,6 @@
+python-dotenv
+watchdog
+pandas
+pyarrow
+boto3
+botocore
