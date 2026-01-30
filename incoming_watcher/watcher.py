@@ -1,4 +1,3 @@
-from watchdog.observers import Observer
 from watchdog.events import FileSystemEventHandler
 import time
 import os
@@ -11,6 +10,12 @@ import threading
 from incoming_watcher import process_worker as pw
 
 load_dotenv()
+
+USE_POLLING = os.getenv("WATCHDOG_POLLING", "0") == "1"
+if USE_POLLING:
+    from watchdog.observers.polling import PollingObserver as Observer
+else:
+    from watchdog.observers import Observer
 
 logger_ingest = setup_logger("dropzone.reading")
 logger_process = setup_logger("dropzone.processing")
@@ -44,7 +49,13 @@ class IngestingFileHandler(FileSystemEventHandler):
         
 
 if __name__ == "__main__":
-
+    import socket, os, sys, signal
+    logger_uploader.info("BOOT env | host=%s | cwd=%s | python=%s",
+    socket.gethostname(),
+    os.getcwd(),
+    sys.executable
+    )
+    
     os.makedirs(INCOMING_DIR, exist_ok=True)
     os.makedirs(FAILED_DIR_READ, exist_ok=True)
     os.makedirs(FAILED_DIR_TRANSFORM, exist_ok=True)
@@ -58,22 +69,31 @@ if __name__ == "__main__":
     t_processing.start()
     logger_process.info("---Process worker UP---")
 
+    t_csv_rescan = threading.Thread(target = pw.incoming_rescan_loop, args=(stop_processing,))
+    t_csv_rescan.start()
+
     observer = Observer()
     observer.schedule(IngestingFileHandler(), INCOMING_DIR, recursive=False)
     observer.start()
     print("Watching:", os.path.abspath(INCOMING_DIR))
     logger_ingest.info("Watching: %s", os.path.abspath(INCOMING_DIR))
 
-
-    try:
-        while True:
-            time.sleep(1)
-    except KeyboardInterrupt:
-        logger_ingest.info("🌀 Keyboard interrupt: stopping observer + process worker")
+    def request_shutdown(signum):
+        logger_ingest.info("🌀 Shutdown signal %s: stopping observer + workers", signum)
         observer.stop()
         stop_processing.set()
 
+    signal.signal(signal.SIGTERM, request_shutdown) 
+    signal.signal(signal.SIGINT, request_shutdown)  
+
+    try:
+        while not stop_processing.is_set():
+            time.sleep(1)
+    except KeyboardInterrupt:
+        request_shutdown(signal.SIGINT, None)
+
     observer.join()
+    t_csv_rescan.join()
     t_processing.join()
 
     
