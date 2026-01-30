@@ -5,6 +5,7 @@ import pandas as pd
 from queue import Full, Queue, Empty
 from datetime import datetime
 from uuid import uuid4
+import glob
 
 from utils.queue_utils import is_candidate
 
@@ -179,17 +180,7 @@ def process_file(file_path):
     df["currency"] = df["currency"].replace(CURRENCY_MAPPING)
     logger_process.info("🟣 Processing: currency mapping")
 
-    amount = df["amount"]
-    mask_str = amount.apply(lambda x: isinstance(x, str))
-    amount_cleaned = amount.copy()
-
-    amount_cleaned.loc[mask_str] = (
-            amount_cleaned.loc[mask_str]
-                .str.strip()
-                .str.replace(",", ".", regex=False)
-                .astype(float)
-            )
-    df["amount"] = pd.to_numeric(amount_cleaned, errors="coerce")
+    df["amount"] = pd.to_numeric(df["amount"], errors="coerce")
     df = df[df["amount"].notna()]
     df = df[df["amount"] >= 0]
     logger_process.info("🟣 Processing: valid amount")
@@ -229,3 +220,21 @@ def process_worker(stop_processing):
         finally:
             process_queue.task_done()
             release_claim(file_path)
+
+def incoming_rescan_loop(stop_processing):
+    logger_ingest.info("🌀 -- Rescan INCOMING folder for missed files -- 🌀")
+    while not stop_processing.is_set():
+        pattern = os.path.join(INCOMING_DIR, "*.csv")
+        found = 0
+        queued = 0
+
+        for file_path in sorted(glob.glob(pattern)):
+            if stop_processing.is_set():
+                break
+            found += 1
+            logger_ingest.info("🟡 Located csv-file in INCOMING FOLDER: %s", file_path)
+            if queue_csv(file_path, source="rescan incoming folder"):
+                logger_ingest.info("🟣 Missed CSV file was queued for processing: %s", file_path)
+                queued += 1
+
+        stop_processing.wait(60)
