@@ -76,15 +76,17 @@ def uploader_worker(stop_event):
                 FAILED_DIR_UPLOAD, 
                 is_logs=False)
             logger_uploader.info("✅ Finished upload handling: %s", file_path)
+        except FileNotFoundError:
+            logger_uploader.info("🟡 Skipped missing file (likely moved/deleted): %s", file_path)
+            continue
         finally:
             upload_queue.task_done()
             utils.release_claim(file_path, claimed_files_lock, claimed_files)
             
 
-def processed_rescan_loop(stop_event):
-    logger_uploader.info("🌀-- Rescan of FAILED/UPLOAD FOLDER --🌀")
+def processed_rescan_loop(stop_event, target_folder, timeout = 60):
     while not stop_event.is_set():
-        pattern = os.path.join(FAILED_DIR_UPLOAD, "*.parquet")
+        pattern = os.path.join(target_folder, "*.parquet")
         found = 0
         queued = 0
 
@@ -97,4 +99,4 @@ def processed_rescan_loop(stop_event):
                 logger_uploader.info("🟣 FAILED file was queued for upload: %s", file_path)
                 queued += 1
 
-        stop_event.wait(60)
+        stop_event.wait(timeout)

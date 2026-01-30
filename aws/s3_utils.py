@@ -1,6 +1,6 @@
 from botocore.config import Config
 import boto3
-from botocore.exceptions import ClientError, BotoCoreError
+from botocore.exceptions import ClientError, BotoCoreError, EndpointConnectionError
 import datetime
 import os
 
@@ -25,31 +25,54 @@ def s3_key(S3_PREFIX, now, file_name, is_logs=False):
 
 def upload_to_s3(s3, file_path, logger_uploader, S3_BUCKET, S3_PREFIX, failed_folder, is_logs = False):
     logger_uploader.info("Processing: %s", file_path)
+
     file_name = os.path.basename(file_path)
-    
     key = s3_key(S3_PREFIX, utcnow(), file_name, is_logs)
 
     try:
         s3.upload_file(file_path, S3_BUCKET, key)
         logger_uploader.info("✅ Uploaded to S3 %s", key)
-    except (ClientError, BotoCoreError) as e:
-        logger_uploader.warning("🔴 Upload to S3 failed %s", key, exc_info=True)
+
+    except EndpointConnectionError as e:
+        logger_uploader.warning("🔴 Network error: upload failed %s | %s", key, e, exc_info=True)
         failed_path_upload = os.path.join(failed_folder, file_name)
         try:
             os.replace(file_path, failed_path_upload)
-            logger_uploader.info("🔴 Parquet was moved to FAILED/UPLOAD %s", key, exc_info=True)
-        except Exception as e:
+            logger_uploader.info("🔴 Parquet was moved to FAILED/UPLOAD %s", failed_path_upload)
+        except Exception as move_e:
             if is_logs:
-                logger_uploader.warning("🟡 STUCK IN LOGS FOLDER! Failed to move to failed/log_upload: %s", file_path)
+                logger_uploader.warning(
+                    "🟡 STUCK IN LOGS FOLDER! Failed to move to failed/log_upload: %s | %s",
+                    file_path, move_e, exc_info=True)
                 return
-
-            logger_uploader.warning("🟡 STUCK IN PROCESSED FOLDER! Failed to move to failed: %s", file_path)
+            logger_uploader.warning(
+                "🟡 STUCK IN PROCESSED FOLDER! Failed to move to failed: %s | %s",
+                file_path, move_e, exc_info=True)
             return
+
+    except (ClientError, BotoCoreError) as e:
+        logger_uploader.warning("🔴 Upload to S3 failed %s | %s", key, e, exc_info=True)
+        failed_path_upload = os.path.join(failed_folder, file_name)
+        try:
+            os.replace(file_path, failed_path_upload)
+            logger_uploader.info("🔴 Parquet was moved to FAILED/UPLOAD %s", failed_path_upload)
+        except Exception as move_e:
+            if is_logs:
+                logger_uploader.warning(
+                    "🟡 STUCK IN LOGS FOLDER! Failed to move to failed/log_upload: %s | %s",
+                    file_path, move_e, exc_info=True)
+                return
+            logger_uploader.warning(
+                "🟡 STUCK IN PROCESSED FOLDER! Failed to move to failed: %s | %s",
+                file_path, move_e, exc_info=True
+            )
+            return
+
     else:
         try:
             os.remove(file_path)
             logger_uploader.info("✅ Uploaded and removed: %s", file_path)
         except FileNotFoundError:
-            logger_uploader.warning("🟡 Uploaded but file already missing: %s", file_path)
+            logger_uploader.info("🟡 Uploaded but file already missing: %s", file_path)
         except Exception:
             logger_uploader.warning("🟡 Uploaded but failed to remove: %s", file_path, exc_info=True)
