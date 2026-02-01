@@ -4,3 +4,4 @@ tmp.py
 .venv/
 file_storage/
 logs/
+.env.docker

@@ -32,6 +32,8 @@ ROWS_PER_FILE = 500
 PRODUCT_IDS = ["P" + str(i).zfill(4) for i in range(1, 115)]
 
 def main():
+
+    os.makedirs(OUTPUT_DIR, exist_ok=True)
     filename = "payments_" + datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S") + ".csv"
     tmp_path = os.path.join(OUTPUT_DIR, "." + filename + ".tmp")
     final_path = os.path.join(OUTPUT_DIR, filename)
@@ -71,15 +73,7 @@ def main():
             else:
                 user_id = ""
 
-            amount_value = round(random.uniform(-25, 3000), 2)
-            amount_case = random.choice(["number", "string", "comma"])
-
-            if amount_case == "string":
-                amount = " " + str(amount_value) + " "
-            elif amount_case == "comma":
-                amount = str(amount_value).replace(".", ",")
-            else:
-                amount = amount_value
+            amount = round(random.uniform(-25, 3000), 2)
 
             currency = random.choice(CURRENCY_VARIANTS)
             status = random.choice(STATUS_VARIANTS)
