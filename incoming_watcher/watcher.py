@@ -78,7 +78,7 @@ if __name__ == "__main__":
     print("Watching:", os.path.abspath(INCOMING_DIR))
     logger_ingest.info("Watching: %s", os.path.abspath(INCOMING_DIR))
 
-    def request_shutdown(signum):
+    def request_shutdown(signum, frame):
         logger_ingest.info("🌀 Shutdown signal %s: stopping observer + workers", signum)
         observer.stop()
         stop_processing.set()

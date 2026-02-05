@@ -161,6 +161,9 @@ def process_file(file_path):
 
     print("🌀 PROCESS:", file_path)
     if len(CORRECT_COLUMN_NAMES )== df.shape[1]:
+        # We are only considering cases where the problem lies in the column names
+        # but not in their order or number
+        # So in test case -- columns always fine
         df.columns = CORRECT_COLUMN_NAMES
         logger_process.info("🟣 Processing: columns are fine")
     else:
